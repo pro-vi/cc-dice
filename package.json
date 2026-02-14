@@ -1,0 +1,22 @@
+{
+  "name": "cc-dice",
+  "version": "0.1.0",
+  "description": "Generic probabilistic dice trigger system for Claude Code hooks",
+  "type": "module",
+  "main": "src/index.ts",
+  "bin": {
+    "cc-dice": "./bin/cc-dice.ts"
+  },
+  "scripts": {
+    "test": "bats tests/unit/test_cc_dice.bats",
+    "install-hooks": "./install.sh"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "author": "provi",
+  "license": "MIT",
+  "devDependencies": {
+    "bun-types": "^1.3.9"
+  }
+}
