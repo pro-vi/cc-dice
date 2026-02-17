@@ -364,10 +364,14 @@ case "${1:-}" in
         echo ""
         if [ "$SCRIPT_DIR" = "$CLONE_DIR" ]; then
             print_warning "Symlinks point to $CLONE_DIR — do not delete it."
+            print_info "Next steps:"
+            echo "  1. Register a slot:  cc-dice register my-slot --message 'Triggered!'"
+            echo "  2. Verify:           $CLONE_DIR/install.sh check"
+        else
+            print_info "Next steps:"
+            echo "  1. Register a slot:  cc-dice register my-slot --message 'Triggered!'"
+            echo "  2. Verify:           ./install.sh check"
         fi
-        print_info "Next steps:"
-        echo "  1. Register a slot:  bun cc-dice register my-slot --message 'Triggered!'"
-        echo "  2. Verify:           ./install.sh check"
         echo ""
         ;;
     uninstall|-u)
