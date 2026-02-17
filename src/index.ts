@@ -86,66 +86,6 @@ async function getDiceCount(
 }
 
 /**
- * Main entry point: check a slot.
- *
- * 1. Load slot config from registry
- * 2. Check cooldown (if per-session)
- * 3. Calculate dice count based on type
- * 4. Roll dice
- * 5. If triggered AND resetOnTrigger: reset accumulator state
- * 6. If triggered AND cooldown === 'per-session': write cooldown marker
- * 7. Return result
- */
-export async function checkSlot(name: string, ctx: CheckContext = {}): Promise<DiceResult> {
-  const config = await getSlot(name);
-  if (!config) {
-    return { triggered: false, rolls: [], best: 0, diceCount: 0, probability: 0, slotName: name };
-  }
-
-  const sessionId = resolveSessionId(ctx);
-
-  // Check cooldown
-  if (config.cooldown === "per-session") {
-    if (await hasCooldown(name, sessionId)) {
-      return { triggered: false, rolls: [], best: 0, diceCount: 0, probability: 0, slotName: name };
-    }
-  }
-
-  // Calculate dice count
-  const { diceCount } = await getDiceCount(config, sessionId, ctx);
-
-  if (diceCount <= 0) {
-    return { triggered: false, rolls: [], best: 0, diceCount: 0, probability: 0, slotName: name };
-  }
-
-  // Roll
-  const rolls = rollDice(diceCount, config.die);
-  const best = rolls.length > 0 ? Math.max(...rolls) : 0;
-  const triggered = checkTarget(rolls, config.target, config.targetMode);
-  const probability = calculateProbability(diceCount, config.die, config.target, config.targetMode);
-
-  // Handle trigger
-  if (triggered) {
-    if (config.resetOnTrigger && config.type === "accumulator") {
-      // Get current depth for reset
-      let currentDepth = 0;
-      if (config.depthProvider) {
-        currentDepth = await config.depthProvider(ctx);
-      } else if (ctx.transcriptPath) {
-        currentDepth = await countExchanges(ctx.transcriptPath);
-      }
-      await resetStateInternal(name, sessionId, currentDepth);
-    }
-
-    if (config.cooldown === "per-session") {
-      await markTriggeredInternal(name, sessionId);
-    }
-  }
-
-  return { triggered, rolls, best, diceCount, probability, slotName: name };
-}
-
-/**
  * Reset a slot's accumulator (set depth_at_last_trigger = current depth).
  * If no transcript is available, uses sentinel -1.
  */
@@ -156,9 +96,7 @@ export async function resetSlot(name: string, ctx: CheckContext = {}): Promise<v
   const sessionId = resolveSessionId(ctx);
 
   let currentDepth = -1; // sentinel
-  if (config.depthProvider) {
-    currentDepth = await config.depthProvider(ctx);
-  } else if (ctx.transcriptPath) {
+  if (ctx.transcriptPath) {
     currentDepth = await countExchanges(ctx.transcriptPath);
   }
 
@@ -205,6 +143,84 @@ export async function getSlotStatus(name: string, ctx: CheckContext = {}): Promi
     nextDiceAt,
     sessionId,
   };
+}
+
+/**
+ * Check all slots with shared dice pools.
+ *
+ * Slots with the same die size share a "base roll" — one die rolled once
+ * per group. Single-type slots observe only the base roll. Accumulator
+ * and fixed-type slots observe the base roll plus bonus dice.
+ *
+ * This ensures that multiple single-type slots on the same die size
+ * see the same roll value (face claims are mutually exclusive on the
+ * base die).
+ */
+export async function checkAllSlots(ctx: CheckContext = {}): Promise<DiceResult[]> {
+  const slots = await listSlotsInternal();
+  if (slots.length === 0) return [];
+
+  const sessionId = resolveSessionId(ctx);
+
+  // Pre-filter cooled-down slots, calculate dice counts for active ones
+  type SlotInfo = { config: DiceSlotConfig; diceCount: number };
+  const active: SlotInfo[] = [];
+  const results: DiceResult[] = [];
+
+  for (const config of slots) {
+    if (config.cooldown === "per-session" && await hasCooldown(config.name, sessionId)) {
+      results.push({ triggered: false, rolls: [], best: 0, diceCount: 0, probability: 0, slotName: config.name });
+      continue;
+    }
+    const { diceCount } = await getDiceCount(config, sessionId, ctx);
+    active.push({ config, diceCount });
+  }
+
+  // Group active slots by die size
+  const groups = new Map<number, SlotInfo[]>();
+  for (const info of active) {
+    const group = groups.get(info.config.die) || [];
+    group.push(info);
+    groups.set(info.config.die, group);
+  }
+
+  for (const [dieSize, groupSlots] of groups) {
+    // Roll one base die if any slot in this group needs at least 1 die
+    const anyNeedsDice = groupSlots.some(s => s.diceCount > 0);
+    const baseRoll = anyNeedsDice ? rollDice(1, dieSize)[0] : 0;
+
+    for (const { config, diceCount } of groupSlots) {
+      if (diceCount <= 0) {
+        results.push({ triggered: false, rolls: [], best: 0, diceCount: 0, probability: 0, slotName: config.name });
+        continue;
+      }
+
+      // Base roll shared across group + bonus dice for this slot
+      const bonusRolls = diceCount > 1 ? rollDice(diceCount - 1, dieSize) : [];
+      const rolls = [baseRoll, ...bonusRolls];
+
+      const best = Math.max(...rolls);
+      const triggered = checkTarget(rolls, config.target, config.targetMode);
+      const probability = calculateProbability(diceCount, dieSize, config.target, config.targetMode);
+
+      if (triggered) {
+        if (config.resetOnTrigger && config.type === "accumulator") {
+          let currentDepth = 0;
+          if (ctx.transcriptPath) {
+            currentDepth = await countExchanges(ctx.transcriptPath);
+          }
+          await resetStateInternal(config.name, sessionId, currentDepth);
+        }
+        if (config.cooldown === "per-session") {
+          await markTriggeredInternal(config.name, sessionId);
+        }
+      }
+
+      results.push({ triggered, rolls, best, diceCount, probability, slotName: config.name });
+    }
+  }
+
+  return results;
 }
 
 /**

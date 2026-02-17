@@ -1,112 +1,190 @@
 # cc-dice
 
-Generic probabilistic dice trigger system for Claude Code hooks.
+Probabilistic dice triggers for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) hooks.
 
-Consumers register "dice slots" with configuration (die size, target number, accumulation rate, etc.), and cc-dice handles rolling, state persistence, cooldown, and hook integration.
+Register dice slots, and cc-dice rolls them on every Claude Code stop event. Accumulators escalate probability with conversation depth; single/fixed slots give flat odds.
+
+## Why
+
+Claude Code sessions are long-running, stateful, and unpredictable, which reminds me of a video game. Very much like a tabletop RPG campaign. In D&D, dice are the core mechanic that makes emergent behavior possible. A Natural 20 happens because probability demands it and it changes the course of the game.
+
+cc-dice is more of a nod to the mechanics than trying to become a sophisticated plugin. In fact, you can create a stop hook yourself with a flat 5% chance to mimic a d20 roll. However, cc-dice gives you what a one-liner can't: accumulating dice pools across turns, shared rolls across multiple slots, per-session cooldowns, and state that persists across turns.
+
+This creates moments that feel organic rather than scheduled. A prompt to invoke a skill that fires at turn 42 because the dice finally landed without any intervention. Your agents are part of the campaign.
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pro-vi/cc-dice/main/install.sh | bash
+```
+
+Or clone locally:
+
+```bash
+git clone https://github.com/pro-vi/cc-dice.git
+cd cc-dice && ./install.sh
+```
+
+Requires [bun](https://bun.sh), [git](https://git-scm.com), and [jq](https://jqlang.github.io/jq/).
+
+```bash
+./install.sh check      # verify
+./install.sh uninstall   # remove
+```
 
 ## Quick Start
 
 ```bash
-# Install
-./install.sh
-
-# Register a slot
-bun bin/cc-dice.ts register my-trigger \
+# Register an accumulator slot (escalating probability)
+cc-dice register refactor \
   --die 20 --target 20 --type accumulator \
-  --message "Natural 20! Time to reflect."
+  --message "Cast /refactor and review your current work."
+
+# Register a flat-chance slot
+cc-dice register second-opinion \
+  --die 20 --target 2 --type single \
+  --message "Get a second opinion (e.g. from codex)."
 
 # Check status
-bun bin/cc-dice.ts status my-trigger
+cc-dice status refactor
 
-# Manual check (same as stop hook)
-bun bin/cc-dice.ts check
+# Manual roll (dry run, no state change)
+cc-dice roll second-opinion
 ```
 
-## Dice Types
+That's it. The installed stop hook rolls all slots automatically on every Claude Code stop event.
 
-### Accumulator (default)
-Dice count increases with conversation depth. +1 die per N turns since last trigger.
+## How Hooks Work
+
+The installer registers a **Stop** hook in `~/.claude/settings.json`. On each stop:
+
+1. Hook receives `{ session_id, transcript_path }` on stdin
+2. `checkAllSlots()` groups slots by die size, rolls one base die per group
+3. Each slot checks its target against shared/bonus rolls
+4. On trigger: `🎲 Nat {best}! {message}` shown to Claude via stderr (exit `2`)
+5. No triggers: exit `0` (roll results visible to user only)
+
+A **SessionStart** hook clears state for slots with `clearOnSessionStart` (default).
+
+## Slot Configuration
+
+```bash
+cc-dice register <name> [options]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--die <n>` | 20 | Die size (d20, d6, etc.) |
+| `--target <n>` | 20 | Target number |
+| `--target-mode <mode>` | exact | `exact`, `gte`, or `lte` |
+| `--type <type>` | accumulator | `accumulator`, `fixed`, or `single` |
+| `--accumulation-rate <n>` | 7 | Turns per +1 die (accumulator only) |
+| `--max-dice <n>` | 100 | Dice cap (accumulator only) |
+| `--fixed-count <n>` | 1 | Dice count (fixed only) |
+| `--cooldown <mode>` | per-session | `per-session` or `none` |
+| `--no-clear-on-start` | | Don't clear state on session start |
+| `--no-reset-on-trigger` | | Don't reset accumulator on trigger |
+| `--no-flavor` | | Don't prepend dice emoji + roll lingo |
+| `--message <msg>` | | Message shown to Claude on trigger |
+
+### Message Placeholders
+
+`{rolls}`, `{best}`, `{diceCount}`, `{slotName}` are replaced at trigger time.
+
+By default, trigger output is prefixed with `🎲 Nat {best}!` — disable with `--no-flavor`.
+
+### Dice Types
+
+**Accumulator**: +1 die per N turns since last trigger. Escalating pressure.
 
 ```
-Turns 0-6:   0 dice (0%)
-Turns 7-13:  1d20  (5%)
-Turns 14-20: 2d20  (9.8%)
-Turns 21-27: 3d20  (14.3%)
+Turns 0-6:   0 dice (0%)      Turns 14-20: 2d20  (9.8%)
+Turns 7-13:  1d20  (5%)       Turns 21-27: 3d20  (14.3%)
 ```
 
-### Fixed
-Always rolls a fixed number of dice.
+**Single**: Always 1 die. Flat chance every stop event.
 
-### Single
-Always rolls exactly 1 die.
+**Fixed**: Always N dice. Constant probability.
 
-## Target Modes
+## Shared Roll Pools
 
-- `exact`: Roll must equal target (e.g., Natural 20)
-- `gte`: Roll must be >= target
-- `lte`: Roll must be <= target
+Slots sharing a die size observe the same base roll:
 
-## CLI
+- Two single d20 slots claiming different faces are mutually exclusive
+- An accumulator d20 slot gets the shared base roll + independent bonus dice
+- Different die sizes (d20 vs d6) roll independently
+
+This means registering `reflection` (target 20) and `second-opinion` (target 1) on a d20 guarantees at most one triggers per base roll.
+
+## CLI Reference
 
 ```
 cc-dice register <name> [options]   Register a dice slot
 cc-dice unregister <name>           Remove a slot
 cc-dice list                        List all slots
-cc-dice status <name> [transcript]  Show status
-cc-dice roll <name> [transcript]    Dry-run roll
-cc-dice reset <name> [transcript]   Reset accumulator
-cc-dice clear <name> [transcript]   Clear state
-cc-dice session-start               Clear auto-clear slots
-cc-dice check [transcript]          Check all slots (stop hook)
+cc-dice status <name>               Show dice status
+cc-dice roll <name>                 Dry-run roll
+cc-dice reset <name>                Reset accumulator
+cc-dice clear <name>                Clear state
 ```
 
 ## Storage
 
 ```
 ~/.claude/dice/
-  slots.json                          Registered slot configs
+  slots.json                          Slot registry
   state/
     {slotName}-{sessionId}.json       Per-slot per-session state
     triggered-{slotName}-{sessionId}  Cooldown markers
 ```
 
-## Environment Variables
+## Library API
 
-- `CC_DICE_BASE`: Override base directory (default: `~/.claude/dice/`)
-- `CC_DICE_SESSION_ID`: Override session ID
-- `CC_REFLECTION_SESSION_ID`: Backward-compat session ID
-- `DEBUG=1`: Verbose logging to stderr
-
-## Programmatic API
+Hooks and scripts can import via the installed symlink:
 
 ```typescript
-import {
-  registerSlot,
-  checkSlot,
-  getSlotStatus,
-  resetSlot,
-  clearSlot,
-  sessionStart,
-} from "cc-dice/src/index";
-
-// Register
-await registerSlot({
-  name: "my-trigger",
-  die: 20,
-  target: 20,
-  type: "accumulator",
-  onTrigger: { message: "Triggered!" },
-});
-
-// Check
-const result = await checkSlot("my-trigger", {
-  transcriptPath: "/path/to/transcript.jsonl",
-});
-
-if (result.triggered) {
-  console.log("Dice triggered!", result.rolls);
-}
+const { registerSlot, checkAllSlots } =
+  await import(`${process.env.HOME}/.claude/dice/cc-dice.ts`);
 ```
+
+Or from the source tree directly:
+
+```typescript
+import { registerSlot, checkAllSlots } from "./src/index";
+```
+
+## Environment Variables
+
+| Variable | Purpose |
+|----------|---------|
+| `CC_DICE_BASE` | Override base directory (default: `~/.claude/dice/`) |
+| `CC_DICE_SESSION_ID` | Override session ID |
+| `DEBUG=1` | Verbose logging to stderr |
+
+## Troubleshooting
+
+**`./install.sh check` shows broken symlinks**: The source directory was moved or deleted. Re-run `./install.sh` to re-link.
+
+**Hook not firing**: Verify with `./install.sh check` that hooks are registered in `settings.json`. Use `cc-dice roll <name>` to test a dry run.
+
+**State not clearing between sessions**: Ensure the SessionStart hook is registered. Use `cc-dice clear <name>` to reset a specific slot manually.
+
+## Contributing
+
+```bash
+git clone --recurse-submodules https://github.com/pro-vi/cc-dice.git
+cd cc-dice
+bun install
+bun test
+```
+
+Test submodules (bats-core, bats-support, bats-assert) are required. If you cloned without `--recurse-submodules`:
+
+```bash
+git submodule update --init --recursive
+```
+
+See [docs/architecture.md](docs/architecture.md) for internals.
 
 ## License
 

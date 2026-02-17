@@ -46,6 +46,7 @@ export const SLOT_DEFAULTS: Partial<DiceSlotConfig> = {
   cooldown: "per-session",
   clearOnSessionStart: true,
   resetOnTrigger: true,
+  flavor: true,
 };
 
 /**
@@ -84,9 +85,7 @@ export async function registerSlot(
   } as DiceSlotConfig;
 
   const slots = await loadSlots();
-  // Strip depthProvider before persisting (function can't be serialized)
-  const { depthProvider, ...serializable } = fullConfig;
-  slots[fullConfig.name] = serializable as DiceSlotConfig;
+  slots[fullConfig.name] = fullConfig;
   await saveSlots(slots);
 
   return fullConfig;

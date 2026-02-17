@@ -8,7 +8,7 @@
  * No trigger: stdout + exit 0 (shows to user only)
  *
  * Installation:
- * 1. Symlink to ~/.claude/hooks/stop-dice.ts
+ * 1. Symlink to ~/.claude/hooks/dice-stop.ts
  * 2. Register in settings.json Stop hook
  */
 
@@ -23,7 +23,7 @@ try {
   mod = await import("../src/index");
 }
 
-const { listSlots, checkSlot, parseStopHookInput } = mod;
+const { listSlots, checkAllSlots, parseStopHookInput } = mod;
 
 async function main() {
   try {
@@ -35,28 +35,38 @@ async function main() {
     };
 
     const slots = await listSlots();
+    const slotMap = new Map(slots.map((s: any) => [s.name, s]));
+    const results = await checkAllSlots(ctx);
+    const triggered: string[] = [];
 
-    for (const slot of slots) {
-      const result = await checkSlot(slot.name, ctx);
+    for (const result of results) {
+      const slot = slotMap.get(result.slotName);
+      if (!slot) continue;
 
       if (result.triggered) {
         const diceStr = result.rolls.join(", ");
-        const message = slot.onTrigger.message
-          .replace("{rolls}", diceStr)
-          .replace("{best}", String(result.best))
-          .replace("{diceCount}", String(result.diceCount))
-          .replace("{slotName}", result.slotName);
+        let msg = slot.onTrigger.message
+            .replace("{rolls}", diceStr)
+            .replace("{best}", String(result.best))
+            .replace("{diceCount}", String(result.diceCount))
+            .replace("{slotName}", result.slotName);
 
-        console.error(message);
-        process.exit(2);
-      }
+        if (slot.flavor !== false) {
+          msg = `🎲 Nat ${result.best}! ${msg}`;
+        }
 
-      // Log non-trigger rolls (visible to user only via stdout)
-      if (result.diceCount > 0) {
+        triggered.push(msg);
+      } else if (result.diceCount > 0) {
+        // Log non-trigger rolls (visible to user only via stdout)
         console.log(
           `${slot.name}: ${result.diceCount}d${slot.die} = [${result.rolls.join(", ")}] (best: ${result.best})`
         );
       }
+    }
+
+    if (triggered.length > 0) {
+      console.error(triggered.join("\n"));
+      process.exit(2);
     }
 
     process.exit(0);

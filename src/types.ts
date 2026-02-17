@@ -26,12 +26,10 @@ export interface DiceSlotConfig {
   resetOnTrigger: boolean;               // default true - auto-reset accumulator on trigger
 
   // Hook output
+  flavor: boolean;                       // default true - prepend dice emoji + roll lingo
   onTrigger: {
     message: string;                     // stderr message shown to Claude on trigger
   };
-
-  // Optional custom depth provider (not serialized to slots.json)
-  depthProvider?: (ctx: CheckContext) => Promise<number>;
 }
 
 export interface DiceState {

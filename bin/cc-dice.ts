@@ -11,16 +11,12 @@
  *   list                         List all registered slots
  *
  * Per-Slot Operations:
- *   status <name> [transcript]   Show current dice status
- *   roll <name> [transcript]     Roll without state change (dry run)
- *   reset <name> [transcript]    Reset accumulator
- *   clear <name> [transcript]    Clear state (session start)
+ *   status <name>                Show current dice status
+ *   roll <name>                  Roll without state change (dry run)
+ *   reset <name>                 Reset accumulator
+ *   clear <name>                 Clear state
  *
  * Session:
- *   session-start                Clear all slots with clearOnSessionStart=true
- *
- * Hook:
- *   check [transcript]           Check all slots (used by stop hook)
  */
 
 import {
@@ -29,16 +25,14 @@ import {
   listSlots,
   getSlot,
   getSlotStatus,
-  checkSlot,
   resetSlot,
   clearSlot,
-  sessionStart,
   rollDice,
   checkTarget,
   calculateProbability,
-  extractSessionFromPath,
+  getTranscriptPath,
 } from "../src/index";
-import type { DiceSlotConfig, CheckContext } from "../src/types";
+import type { CheckContext } from "../src/types";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -52,16 +46,10 @@ Slot Management:
   list                         List all registered slots
 
 Per-Slot Operations:
-  status <name> [transcript]   Show current dice status
-  roll <name> [transcript]     Roll without state change (dry run)
-  reset <name> [transcript]    Reset accumulator
-  clear <name> [transcript]    Clear state (session start)
-
-Session:
-  session-start                Clear all slots with clearOnSessionStart=true
-
-Hook:
-  check [transcript]           Check all slots (used by stop hook)
+  status <name>                Show current dice status
+  roll <name>                  Roll without state change (dry run)
+  reset <name>                 Reset accumulator
+  clear <name>                 Clear state
 
 Register Options:
   --die <n>                    Die size (default: 20)
@@ -74,6 +62,7 @@ Register Options:
   --cooldown <mode>            per-session|none (default: per-session)
   --no-clear-on-start          Don't clear on session start
   --no-reset-on-trigger        Don't reset accumulator on trigger
+  --no-flavor                  Don't prepend dice emoji + roll lingo
   --message <msg>              Trigger message for stderr`);
 }
 
@@ -87,13 +76,9 @@ function hasFlag(flag: string): boolean {
   return args.includes(flag);
 }
 
-function buildContext(transcriptArg?: string): CheckContext {
-  const ctx: CheckContext = {};
-  if (transcriptArg) {
-    ctx.transcriptPath = transcriptArg;
-    ctx.sessionId = extractSessionFromPath(transcriptArg);
-  }
-  return ctx;
+function buildContext(): CheckContext {
+  const transcriptPath = getTranscriptPath() ?? undefined;
+  return { transcriptPath };
 }
 
 async function main(): Promise<void> {
@@ -120,6 +105,7 @@ async function main(): Promise<void> {
       const cooldown = (parseArg("--cooldown") ?? "per-session") as "per-session" | "none";
       const clearOnSessionStart = !hasFlag("--no-clear-on-start");
       const resetOnTrigger = !hasFlag("--no-reset-on-trigger");
+      const flavor = !hasFlag("--no-flavor");
       const message = parseArg("--message") ?? `Dice trigger: ${name}`;
 
       const config = await registerSlot({
@@ -134,11 +120,11 @@ async function main(): Promise<void> {
         cooldown,
         clearOnSessionStart,
         resetOnTrigger,
+        flavor,
         onTrigger: { message },
       });
 
-      console.log(`Registered slot: ${name}`);
-      console.log(JSON.stringify(config, null, 2));
+      console.log(`Registered: ${config.name} (${config.type}, d${config.die}, target=${config.target} ${config.targetMode})`);
       break;
     }
 
@@ -176,7 +162,7 @@ async function main(): Promise<void> {
         console.error("Error: slot name required");
         process.exit(1);
       }
-      const ctx = buildContext(args[2]);
+      const ctx = buildContext();
       const status = await getSlotStatus(name, ctx);
       if (!status) {
         console.error(`Slot not found: ${name}`);
@@ -204,7 +190,7 @@ async function main(): Promise<void> {
         console.error(`Slot not found: ${name}`);
         process.exit(1);
       }
-      const ctx = buildContext(args[2]);
+      const ctx = buildContext();
       const status = await getSlotStatus(name, ctx);
       if (!status) {
         process.exit(1);
@@ -229,7 +215,7 @@ async function main(): Promise<void> {
         console.error("Error: slot name required");
         process.exit(1);
       }
-      const ctx = buildContext(args[2]);
+      const ctx = buildContext();
       await resetSlot(name, ctx);
       console.log(`Reset slot: ${name}`);
       break;
@@ -241,58 +227,9 @@ async function main(): Promise<void> {
         console.error("Error: slot name required");
         process.exit(1);
       }
-      const ctx = buildContext(args[2]);
+      const ctx = buildContext();
       await clearSlot(name, ctx);
       console.log(`Cleared slot: ${name}`);
-      break;
-    }
-
-    case "session-start": {
-      const ctx = buildContext(args[1]);
-      const cleared = await sessionStart(ctx);
-      if (cleared.length > 0) {
-        console.log(`Cleared ${cleared.length} slot(s): ${cleared.join(", ")}`);
-      } else {
-        console.log("No slots to clear.");
-      }
-      break;
-    }
-
-    case "check": {
-      const ctx = buildContext(args[1]);
-      const slots = await listSlots();
-      if (slots.length === 0) {
-        process.exit(0);
-      }
-
-      const results: string[] = [];
-      for (const slot of slots) {
-        const result = await checkSlot(slot.name, ctx);
-
-        if (result.triggered) {
-          // Trigger: stderr + exit 2
-          const diceStr = result.rolls.join(", ");
-          const message = slot.onTrigger.message
-            .replace("{rolls}", diceStr)
-            .replace("{best}", String(result.best))
-            .replace("{diceCount}", String(result.diceCount))
-            .replace("{slotName}", result.slotName);
-          console.error(message);
-          process.exit(2);
-        }
-
-        if (result.diceCount > 0) {
-          results.push(
-            `${slot.name}: ${result.diceCount}d${slot.die} = [${result.rolls.join(", ")}] (best: ${result.best})`
-          );
-        }
-      }
-
-      // Non-trigger: show all results on stdout (user visible only)
-      if (results.length > 0) {
-        console.log(results.join("\n"));
-      }
-      process.exit(0);
       break;
     }
 

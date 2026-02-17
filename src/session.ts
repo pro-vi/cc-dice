@@ -26,18 +26,11 @@ export function getProjectHash(): string {
  *
  * Resolution order:
  * 1. CC_DICE_SESSION_ID env var (set by session-start hook)
- * 2. CC_REFLECTION_SESSION_ID env var (backward compat with cc-reflection)
- * 3. null (no UUID available)
+ * 2. null (no UUID available)
  */
 export function getClaudeSessionId(): string | null {
-  // Primary: cc-dice env var
   if (process.env.CC_DICE_SESSION_ID) {
     return process.env.CC_DICE_SESSION_ID;
-  }
-
-  // Backward compat: cc-reflection env var
-  if (process.env.CC_REFLECTION_SESSION_ID) {
-    return process.env.CC_REFLECTION_SESSION_ID;
   }
 
   return null;
@@ -56,7 +49,7 @@ export function extractSessionFromPath(transcriptPath: string): string | undefin
  * Get session ID for current context.
  *
  * Priority:
- * 1. CC_DICE_SESSION_ID / CC_REFLECTION_SESSION_ID env var
+ * 1. CC_DICE_SESSION_ID env var
  * 2. Project hash (12-char MD5 of directory)
  */
 export function getSessionId(): string {
@@ -73,8 +66,8 @@ if (import.meta.main) {
   if (process.env.DEBUG === "1") {
     console.error(`[DEBUG] Session ID: ${sessionId}`);
     console.error(`[DEBUG] CC_DICE_SESSION_ID: ${process.env.CC_DICE_SESSION_ID || "<not set>"}`);
-    console.error(`[DEBUG] CC_REFLECTION_SESSION_ID: ${process.env.CC_REFLECTION_SESSION_ID || "<not set>"}`);
     console.error(`[DEBUG] Project hash: ${getProjectHash()}`);
+
     console.error(`[DEBUG] PWD: ${process.env.PWD || process.cwd()}`);
   }
 }

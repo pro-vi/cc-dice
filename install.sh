@@ -5,7 +5,8 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_URL="https://github.com/pro-vi/cc-dice.git"
+CLONE_DIR="${HOME}/.local/share/cc-dice"
 DICE_BASE="${HOME}/.claude/dice"
 HOOKS_DIR="${HOME}/.claude/hooks"
 SETTINGS_FILE="${HOME}/.claude/settings.json"
@@ -37,6 +38,10 @@ check_dependencies() {
         missing+=("bun (runtime)")
     fi
 
+    if ! command -v git &> /dev/null; then
+        missing+=("git (clone source for curl installs)")
+    fi
+
     if ! command -v jq &> /dev/null; then
         missing+=("jq (JSON processing for settings.json)")
     fi
@@ -48,6 +53,7 @@ check_dependencies() {
         done
         echo ""
         echo "Install:"
+        echo "  git: https://git-scm.com/downloads"
         echo "  bun: curl -fsSL https://bun.sh/install | bash"
         echo "  jq:  brew install jq"
         return 1
@@ -69,15 +75,23 @@ unregister_hook() {
     local tmp_file=$(mktemp)
     if ! jq --arg event "$event_name" --arg pattern "$grep_pattern" '
         if .hooks[$event] then
-            .hooks[$event] |= map(
-                if .hooks then
-                    .hooks |= map(select(.command | tostring | contains($pattern) | not))
-                else . end
-            ) | map(select(.hooks | length > 0))
+            .hooks[$event] |= (
+                map(
+                    if .hooks then
+                        .hooks |= map(select(.command | tostring | contains($pattern) | not))
+                    else . end
+                ) | map(select(.hooks | length > 0))
+            )
         else . end
     ' "$SETTINGS_FILE" > "$tmp_file"; then
         rm -f "$tmp_file"
         print_error "Failed to parse settings.json (restored from backup)"
+        cp "$SETTINGS_FILE.bak" "$SETTINGS_FILE"
+        return 2
+    fi
+    if ! jq empty "$tmp_file" 2>/dev/null || [ ! -s "$tmp_file" ]; then
+        rm -f "$tmp_file"
+        print_error "jq produced invalid JSON (restored from backup)"
         cp "$SETTINGS_FILE.bak" "$SETTINGS_FILE"
         return 2
     fi
@@ -116,6 +130,12 @@ register_hook() {
             cp "$SETTINGS_FILE.bak" "$SETTINGS_FILE"
             return 1
         fi
+        if ! jq empty "$tmp_file" 2>/dev/null || [ ! -s "$tmp_file" ]; then
+            rm -f "$tmp_file"
+            print_error "jq produced invalid JSON (restored from backup)"
+            cp "$SETTINGS_FILE.bak" "$SETTINGS_FILE"
+            return 1
+        fi
         mv "$tmp_file" "$SETTINGS_FILE"
         print_success "Registered $event_name hook in settings.json"
     else
@@ -128,6 +148,23 @@ register_hook() {
 }
 EOFJSON
         print_success "Created settings.json with $event_name hook"
+    fi
+}
+
+# ---- Source resolution ----
+
+resolve_source_dir() {
+    if [ -n "${BASH_SOURCE[0]:-}" ] && [ -f "$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/src/index.ts" 2>/dev/null ]; then
+        SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    else
+        # Running via curl or from a location without source files — clone repo
+        if [ -d "$CLONE_DIR/.git" ]; then
+            git -C "$CLONE_DIR" pull --quiet 2>/dev/null || true
+        else
+            print_info "Cloning cc-dice..."
+            git clone --quiet --depth 1 "$REPO_URL" "$CLONE_DIR"
+        fi
+        SCRIPT_DIR="$CLONE_DIR"
     fi
 }
 
@@ -146,8 +183,8 @@ install_dice() {
     print_success "Symlinked cc-dice module to $DICE_BASE/cc-dice.ts"
 
     # Symlink hooks
-    ln -sf "$SCRIPT_DIR/hooks/stop.ts" "$HOOKS_DIR/stop-dice.ts"
-    print_success "Symlinked stop hook to $HOOKS_DIR/stop-dice.ts"
+    ln -sf "$SCRIPT_DIR/hooks/stop.ts" "$HOOKS_DIR/dice-stop.ts"
+    print_success "Symlinked stop hook to $HOOKS_DIR/dice-stop.ts"
 
     ln -sf "$SCRIPT_DIR/hooks/session-start.ts" "$HOOKS_DIR/dice-session-start.ts"
     print_success "Symlinked session-start hook to $HOOKS_DIR/dice-session-start.ts"
@@ -162,7 +199,7 @@ install_dice() {
 register_hooks() {
     echo ""
     print_info "Registering hooks in settings.json..."
-    register_hook "Stop" "stop-dice" "$HOOKS_DIR/stop-dice.ts"
+    register_hook "Stop" "dice-stop" "$HOOKS_DIR/dice-stop.ts"
     register_hook "SessionStart" "dice-session-start" "$HOOKS_DIR/dice-session-start.ts"
 }
 
@@ -170,6 +207,13 @@ show_check() {
     echo ""
     echo "CC-Dice Installation Check"
     echo ""
+
+    # Quick check: if base dir doesn't exist, nothing is installed
+    if [ ! -d "$DICE_BASE" ] && [ ! -L "${HOME}/.local/bin/cc-dice" ] && [ ! -f "$HOOKS_DIR/dice-stop.ts" ]; then
+        echo -e "  ${BLUE}Not installed.${NC} Run ${BLUE}./install.sh${NC} to install."
+        echo ""
+        return 0
+    fi
 
     local errors=0
     local warnings=0
@@ -184,16 +228,24 @@ show_check() {
 
     # Check module symlink
     if [ -L "$DICE_BASE/cc-dice.ts" ]; then
-        echo -e "  ${GREEN}ok${NC} Module symlink"
+        if [ -e "$DICE_BASE/cc-dice.ts" ]; then
+            echo -e "  ${GREEN}ok${NC} Module symlink"
+        else
+            echo -e "  ${RED}err${NC} Module symlink broken (target missing)"
+            errors=$((errors + 1))
+        fi
     else
         echo -e "  ${YELLOW}warn${NC} Module not symlinked"
         warnings=$((warnings + 1))
     fi
 
     # Check stop hook
-    if [ -f "$HOOKS_DIR/stop-dice.ts" ]; then
+    if [ -L "$HOOKS_DIR/dice-stop.ts" ] && [ ! -e "$HOOKS_DIR/dice-stop.ts" ]; then
+        echo -e "  ${RED}err${NC} Stop hook symlink broken (target missing)"
+        errors=$((errors + 1))
+    elif [ -f "$HOOKS_DIR/dice-stop.ts" ]; then
         echo -e "  ${GREEN}ok${NC} Stop hook file"
-        if [ -f "$SETTINGS_FILE" ] && grep -q "stop-dice" "$SETTINGS_FILE" 2>/dev/null; then
+        if [ -f "$SETTINGS_FILE" ] && grep -q "dice-stop" "$SETTINGS_FILE" 2>/dev/null; then
             echo -e "  ${GREEN}ok${NC} Stop hook registered"
         else
             echo -e "  ${YELLOW}warn${NC} Stop hook not registered in settings.json"
@@ -205,7 +257,10 @@ show_check() {
     fi
 
     # Check session-start hook
-    if [ -f "$HOOKS_DIR/dice-session-start.ts" ]; then
+    if [ -L "$HOOKS_DIR/dice-session-start.ts" ] && [ ! -e "$HOOKS_DIR/dice-session-start.ts" ]; then
+        echo -e "  ${RED}err${NC} SessionStart hook symlink broken (target missing)"
+        errors=$((errors + 1))
+    elif [ -f "$HOOKS_DIR/dice-session-start.ts" ]; then
         echo -e "  ${GREEN}ok${NC} SessionStart hook file"
         if [ -f "$SETTINGS_FILE" ] && grep -q "dice-session-start" "$SETTINGS_FILE" 2>/dev/null; then
             echo -e "  ${GREEN}ok${NC} SessionStart hook registered"
@@ -219,7 +274,12 @@ show_check() {
 
     # Check CLI
     if [ -L "${HOME}/.local/bin/cc-dice" ]; then
-        echo -e "  ${GREEN}ok${NC} CLI symlink"
+        if [ -e "${HOME}/.local/bin/cc-dice" ]; then
+            echo -e "  ${GREEN}ok${NC} CLI symlink"
+        else
+            echo -e "  ${RED}err${NC} CLI symlink broken (target missing)"
+            errors=$((errors + 1))
+        fi
     else
         echo -e "  ${YELLOW}warn${NC} CLI not symlinked"
         warnings=$((warnings + 1))
@@ -249,11 +309,11 @@ uninstall() {
     print_info "Uninstalling cc-dice..."
 
     # Unregister hooks
-    unregister_hook "Stop" "stop-dice" || true
+    unregister_hook "Stop" "dice-stop" || true
     unregister_hook "SessionStart" "dice-session-start" || true
 
     # Remove hook files
-    rm -f "$HOOKS_DIR/stop-dice.ts"
+    rm -f "$HOOKS_DIR/dice-stop.ts"
     rm -f "$HOOKS_DIR/dice-session-start.ts"
     print_success "Removed hooks"
 
@@ -296,11 +356,15 @@ case "${1:-}" in
         if ! check_dependencies; then
             exit 1
         fi
+        resolve_source_dir
         install_dice
         register_hooks
         echo ""
         print_success "Installation complete!"
         echo ""
+        if [ "$SCRIPT_DIR" = "$CLONE_DIR" ]; then
+            print_warning "Symlinks point to $CLONE_DIR — do not delete it."
+        fi
         print_info "Next steps:"
         echo "  1. Register a slot:  bun cc-dice register my-slot --message 'Triggered!'"
         echo "  2. Verify:           ./install.sh check"

@@ -23,11 +23,9 @@ export async function getAccumulatorDiceCount(
   sessionId: string,
   ctx: CheckContext
 ): Promise<{ diceCount: number; currentDepth: number; depthSinceTrigger: number }> {
-  // Resolve current depth
+  // Resolve current depth from transcript
   let currentDepth = 0;
-  if (config.depthProvider) {
-    currentDepth = await config.depthProvider(ctx);
-  } else if (ctx.transcriptPath) {
+  if (ctx.transcriptPath) {
     currentDepth = await countExchanges(ctx.transcriptPath);
   }
 
