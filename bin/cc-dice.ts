@@ -241,8 +241,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  console.error(`Error: ${error.message ?? error}`);
   if (process.env.DEBUG === "1") {
-    console.error("cc-dice error:", error);
+    console.error(error);
   }
-  process.exit(0); // fail gracefully
+  process.exit(1);
 });
