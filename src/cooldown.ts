@@ -9,7 +9,7 @@
 
 import { existsSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import { getBaseDir } from "./registry";
+import { getBaseDir, validateName } from "./registry";
 
 /**
  * Get the state directory, creating it if needed.
@@ -26,6 +26,8 @@ function getStateDir(): string {
  * Get the cooldown marker file path.
  */
 function getMarkerFile(slotName: string, sessionId: string): string {
+  validateName(slotName, "slot name");
+  validateName(sessionId, "session ID");
   return join(getStateDir(), `triggered-${slotName}-${sessionId}`);
 }
 

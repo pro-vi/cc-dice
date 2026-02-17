@@ -35,6 +35,20 @@ function getSlotsFile(): string {
 }
 
 /**
+ * Validate a name used in file paths (slot names, session IDs).
+ * Rejects path separators, dots-only, and empty strings.
+ */
+const SAFE_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
+
+export function validateName(name: string, label = "name"): void {
+  if (!SAFE_NAME_RE.test(name)) {
+    throw new Error(
+      `Invalid ${label} "${name}": must start with alphanumeric, contain only [a-zA-Z0-9_-]`
+    );
+  }
+}
+
+/**
  * Default values applied when registering a slot.
  */
 export const SLOT_DEFAULTS: Partial<DiceSlotConfig> = {
@@ -79,6 +93,8 @@ async function saveSlots(slots: Record<string, DiceSlotConfig>): Promise<void> {
 export async function registerSlot(
   config: Partial<DiceSlotConfig> & { name: string; die: number; target: number; onTrigger: { message: string } }
 ): Promise<DiceSlotConfig> {
+  validateName(config.name, "slot name");
+
   const fullConfig: DiceSlotConfig = {
     ...SLOT_DEFAULTS,
     ...config,

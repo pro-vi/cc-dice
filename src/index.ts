@@ -14,7 +14,7 @@ export type {
 } from "./types";
 
 // Registration
-export { registerSlot, unregisterSlot, getSlot, listSlots, getBaseDir } from "./registry";
+export { registerSlot, unregisterSlot, getSlot, listSlots, getBaseDir, validateName } from "./registry";
 
 // State
 export { loadState, saveState, resetState, clearState } from "./state";

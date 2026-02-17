@@ -171,6 +171,18 @@ deploy_transcript() {
     assert_output --partial "Slot not found"
 }
 
+@test "register: rejects path-traversal names" {
+    run bun "$CLI" register "../../etc/passwd" --die 20 --target 20 --message "Exploit"
+    assert_failure
+    assert_output --partial "Invalid slot name"
+
+    run bun "$CLI" register "../sneaky" --die 20 --target 20 --message "Exploit"
+    assert_failure
+
+    run bun "$CLI" register ".hidden" --die 20 --target 20 --message "Exploit"
+    assert_failure
+}
+
 # ============================================================================
 # Accumulator Tests
 # ============================================================================

@@ -8,7 +8,7 @@
 
 import { existsSync, mkdirSync } from "fs";
 import { join } from "path";
-import { getBaseDir } from "./registry";
+import { getBaseDir, validateName } from "./registry";
 import type { DiceState } from "./types";
 
 const DEFAULT_DICE_STATE: DiceState = {
@@ -31,6 +31,8 @@ function getStateDir(): string {
  * Get the state file path for a slot + session combination.
  */
 export function getStateFile(slotName: string, sessionId: string): string {
+  validateName(slotName, "slot name");
+  validateName(sessionId, "session ID");
   return join(getStateDir(), `${slotName}-${sessionId}.json`);
 }
 
