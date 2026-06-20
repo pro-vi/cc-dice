@@ -1273,3 +1273,14 @@ EOF
     assert_success
     assert_output --partial "PASS"
 }
+
+# ============================================================================
+# Conformance suite (plan D3): the Bun conformance runner is the single entry
+# point, wrapped here so `bun run test` runs it alongside BATS in one report.
+# ============================================================================
+
+@test "conformance: bun runner passes (C1-C10)" {
+    run bun "$PROJ_DIR/tests/conformance/run.ts"
+    assert_success
+    assert_output --partial "0 failed"
+}
