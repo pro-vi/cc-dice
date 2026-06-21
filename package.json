@@ -7,6 +7,13 @@
   "bin": {
     "cc-dice": "./bin/cc-dice.ts"
   },
+  "files": [
+    "src",
+    "bin",
+    "hooks",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "./tests/bats/bin/bats tests/unit/test_cc_dice.bats",
     "install-hooks": "./install.sh"
