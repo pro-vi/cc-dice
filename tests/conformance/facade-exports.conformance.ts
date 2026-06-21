@@ -60,8 +60,8 @@ export const checks: Check[] = [
         main: string;
       };
       assertEqual(pkg.name, "agent-dice", "package.name");
-      assertEqual(pkg.bin?.["agent-dice"], "./bin/agent-dice.ts", "package.bin.agent-dice");
-      assertEqual(pkg.bin?.["cc-dice"], "./bin/agent-dice.ts", "cc-dice alias preserved (back-compat)");
+      assertEqual(pkg.bin?.["agent-dice"], "bin/agent-dice.ts", "package.bin.agent-dice");
+      assertEqual(pkg.bin?.["cc-dice"], "bin/agent-dice.ts", "cc-dice alias preserved (back-compat)");
       assertEqual(pkg.main, "src/index.ts", "package.main");
     },
   },

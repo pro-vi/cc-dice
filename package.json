@@ -5,8 +5,8 @@
   "type": "module",
   "main": "src/index.ts",
   "bin": {
-    "agent-dice": "./bin/agent-dice.ts",
-    "cc-dice": "./bin/agent-dice.ts"
+    "agent-dice": "bin/agent-dice.ts",
+    "cc-dice": "bin/agent-dice.ts"
   },
   "files": [
     "src",
@@ -24,7 +24,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/pro-vi/agent-dice.git"
+    "url": "git+https://github.com/pro-vi/agent-dice.git"
   },
   "homepage": "https://github.com/pro-vi/agent-dice#readme",
   "bugs": {
@@ -32,9 +32,18 @@
   },
   "author": "provi",
   "license": "MIT",
-  "keywords": ["agent", "claude-code", "pi", "pi-extension", "dice", "hooks"],
+  "keywords": [
+    "agent",
+    "claude-code",
+    "pi",
+    "pi-extension",
+    "dice",
+    "hooks"
+  ],
   "pi": {
-    "extensions": ["./src/adapters/pi/index.ts"]
+    "extensions": [
+      "./src/adapters/pi/index.ts"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-ai": "*",
