@@ -14,6 +14,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as engine from "../../core/engine";
 import { createPiHost, piContext } from "./host";
+import { registerDiceCommands } from "./commands";
 import { renderTrigger } from "../claude-renderer";
 
 function failOpen(where: string, err: unknown): void {
@@ -23,6 +24,9 @@ function failOpen(where: string, err: unknown): void {
 export default function ccDice(pi: ExtensionAPI): void {
   const host = createPiHost();
   let depth: number | undefined;
+
+  // /dice slash command (config UX) — sees the same cached depth for status/roll.
+  registerDiceCommands(pi, () => depth);
 
   // Free monotonic depth — no transcript parse (cf. the Claude adapter).
   pi.on("turn_end", (event) => {

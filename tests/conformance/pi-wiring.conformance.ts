@@ -24,6 +24,7 @@ function mockPi(opts: { throwOnSend?: boolean } = {}) {
       if (opts.throwOnSend) throw new Error("boom");
       sent.push(m);
     },
+    registerCommand: () => {},
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { pi: pi as any, handlers, sent };
